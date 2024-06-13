@@ -1,0 +1,857 @@
+---
+title: "Tecniche di data mining per la classificazione di soggetti fumatori"
+output:
+  bookdown::html_document2:
+    toc: true
+    toc_float: true
+author: Gaia Ghidoni (890957) - Alberto Negri (880254)
+date: A.A. 2023/2024
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(plotly)
+library(MASS)
+library(car) 
+library(caret)
+library(car)
+library(ROCR)
+library(randomForest)
+library(class)
+library(mice)
+library(tree)
+library(tidyverse)
+```
+
+La presente analisi si propone di affrontare un problema di classificazione che ha come discriminare tra individui fumatori e non sulla base di una serie di misurazioni mediche. Le tecniche di data mining applicate sono: alberi decisionali, KNN, regressione logistica.
+
+I dati usati possono essere scaricati al seguente link: https://www.kaggle.com/datasets/kukuroo3/body-signal-of-smoking
+
+# Introduzione
+
+Il fumo è una delle più grandi minacce per la salute in quanto rappresenta uno dei maggiori fattori di rischio nello sviluppo di patologie neoplastiche, cardiovascolari e respiratorie. Secondo i dati diffusi dall'OMS è responsabile del decesso di almeno 6 milioni di persone ogni anno. Questo si traduce in ingenti spese sostenute dai servizi sanitari nazionali per le cure di pazienti affetti da patologie causate dal fumo.
+
+L'esempio qui considerato è quello del National Health Insurance Service (NHIS), sistema di assicurazione sanitaria nazionale del Sud Corea. Nel 2014 il NHIS ha indetto una causa contro KT&G, il principale produttore di tabacco coreano, richiedendo un risarcimento di 53,3 miliardi di won, pari alla spesa totale sostenuta dal 2003 al 2013 per il trattamento di pazienti affetti da cancro ai polmoni e alla laringe, fortemente legati al fumo.
+
+L'NHIS ha raccolto varie informazioni sui check-up svolti da un campione di cittadini assicurati dal servizio stesso. Queste sono costituite da dati identificativi dei pazienti, dai risultati della visita e dallo stato di fumatore.
+
+La seguente analisi applicherà quindi diversi metodi di classificazione al fine di identificare lo stato di fumatore per pazienti di cui si conoscono solo valori biologici. Questo permetterebbe all'NHIS di avere una previsione su quanti tra i loro assicurati siano fumatori o meno.
+
+# Dataset
+
+Il dataset contiene 55692 osservazioni. La variabile target **Smoking** assume valore 0 nel caso di individuo non fumatore e 1 in caso di individuo fumatore. Il 63% degli individui è non fumatore, il 37% lo è. Sono inoltre presenti 26 variabili così definite:
+
+1.  **ID**: codice identificativo.
+2.  **Gender**: genere.
+3.  **Age**: età (anni); rilevata arrotondando a valori multipli di 5.
+4.  **Heigh**: altezza (cm); misurata arrotondando a valori multipli di 5.
+5.  **Weight**: peso (kg); misurata arrotondando a valori multipli di 5.
+6.  **Waist**: circonferenza della vita (cm).
+7.  **Eyesight (left)**: vista occhio sinistro.
+8.  **Eyesight (right)**: vista occhio destro.
+9.  **Hearing (left)**: udito normale (0) o presenza di anomalie (1) nell'orrecchio sinistro.
+10. **Hearing (right)**: udito normale (0) o presenza di anomalie (1) nell'orrecchio destro.
+11. **Systolic**: pressione sistolica (massima), misurata durante la contrazione ventricolare.
+12. **Relaxation**: pressione diastolica (minima), misurata durante il rilassamento ventricolare.
+13. **Fasting blood sugar**: glicemia, ossia il valore di glucosio nel sangue.
+14. **Cholesterol**: colesterolo totale, molecola lipidica in parte sintetizzato nel fegato e in parte introdotto con l'alimentazione.
+15. **Triglyceride**: trigliceridi, lipidi introdotti principalmente con la dieta marcatori della salute metabolica.
+16. **HDL**: lipoproteine che ripuliscono le arterie dal colesterolo in eccesso trasportandolo al fegato, dove viene smaltito ("colesterolo buono").
+17. **LDL**: lipoproteine che trasportano il colesterolo dal fegato alle cellule del corpo e che, in quantità eccessiva, si depositano sulle pareti arteriose provocandone un progressivo inspessimento ("colesterolo cattivo").
+18. **Hemoglobin**: emoglobina, proteina contenuta nei globuli rossi deputata al trasporto di ossigeno nel sangue.
+19. **Urine protein**: proteine nelle urine, valori elevati possono indicare una malattia renale; assume valori tra 1 e 6.
+20. **Serum creatinine**: creatinina, sostanza di scarto prodotta nei muscoli indice della salute dei reni.
+21. **AST**: aspartato transaminasi, enzima il cui aumento del livello può indicare una patologia o lesione al fegato.
+22. **ALT**: alanina amino transferasi, enzima epatico che aiuta l'organismo a metabolizzare le proteine, anch'esso indicatore della salute del fegato.
+23. **γ-GTP**: gamma glutamil transferasi, enzima epatico le cui concentrazioni elevate possono indicare una lesione al fegato o ai dotti biliari.
+24. **Oral**: indica se il paziente ha svolto una visita dentistica (1) o meno (0).
+25. **Dental caries**: presenza (1) o assenza (0) di carie.
+26. **Tartar**: presenza (yes) o assenza (no) di tartaro.
+
+```{r}
+smoke <- read.csv("C:\\Users\\alber\\OneDrive\\Desktop\\data mining\\smoking.csv")
+smoke$gender<-as.factor(smoke$gender)
+smoke$hearing.left.<-as.factor(smoke$hearing.left.)
+smoke$hearing.right.<-as.factor(smoke$hearing.right.)
+smoke$dental.caries<-as.factor(smoke$dental.caries)
+smoke$tartar<-as.factor(smoke$tartar)
+smoke$smoking<-as.factor(smoke$smoking)
+```
+
+Partendo dal dataset originale appare opportuno procedere subito all'eliminazione di alcune variabili, quali
+
+-   ID: inutile ai fini dell'analisi.
+-   Oral: assume valore 1 per tutte le osservazioni e quindi non aggiunge informazione.
+-   Urine protein: la fonte non fornisce informazioni sui 6 livelli assumibili dalla variabile ed essi non sono quindi riconducibili al valore numerico della concentrazione di proteine nelle urine. Per non inficiare le analisi è stato quindi scelto di eliminare la variabile, avendo precedentemente considerato che il set di variabili rimanenti è opportunamente in grado di spiegare la variabile target.
+-   Eyesight left e eyesight right: la fonte non fornisce informazioni precise sul metodo di rilevazione della vista e sul significato dei valori rilevati. Conducendo un'analisi più specifica, in particolare concentrandosi sui boxplot, si evidenzia una distribuzione anomala: le osservazioni sono concentrate tra 0.1 e 2 e appaiono poi molti valori pari a 9.9, lasciando un gap illogico. Il fatto che ci sia una polarizzazione su un numero così fuori dal range non è in alcun modo spiegabile dalle informazioni in nostro possesso, quindi verranno rimosse le variabili per non inficiare le analisi successive. Inoltre, i boxplot condizionati alla classe sono identici, quindi presumibilmente non vanno a discriminare sullo stato di fumatore.
+
+```{r}
+ok <- ggplotly(ggplot(smoke, aes_string(x = "smoking", y = smoke$eyesight.right., col = "smoking", fill = "smoking"))+geom_boxplot(alpha=0.2)+ylab("eyesight.right"))
+ok2 <- ggplotly(ggplot(smoke, aes_string(x = "smoking", y = smoke$eyesight.left., col = "smoking", fill = "smoking"))+geom_boxplot(alpha=0.2)+ylab("eyesight.left")+labs(title="boxplot di eyesight.right sopra e di eyesight.left sotto"))
+subplot(ok,ok2,nrows=2)
+```
+
+```{r}
+library(dplyr)
+smoke<-smoke%>%dplyr::select(-c(ID,eyesight.left., eyesight.right., Urine.protein, oral)) #rimozioni variabili 
+
+
+str(smoke)
+```
+
+# Splitting dei dati
+
+Innanzitutto si suddivida il dataset in training e test set. Il primo verrà usato per la fase di pre-processing e di scelta e valutazione dei modelli, il secondo per la classificazione delle nuove osservazioni e valutazione delle previsioni. Avendo una numerosità elevata di osservazioni si è scelto di effettuare una divisione 70% train - 30% test.
+
+```{r}
+set.seed(123)
+index <- sample(1:nrow(smoke),0.7*nrow(smoke)) 
+train <- smoke[index,] #train: 38984 obs
+test <- smoke[-index,] #test: 16708 obs
+```
+
+Dato che saranno valutate le performance di più modelli, si applica un'ulteriore divisione all'interno del set di training creando così un nuovo training set e un validation set.
+
+```{r}
+sub.index <- sample(1:nrow(train),0.65*nrow(train))
+sub.train <- train[sub.index,] #sub train: 25339 obs
+validation <- train[-sub.index,] #validation: 13645 obs
+```
+
+Si verifica infine che le proporzioni delle due classi della variabile target siano le stesse su tutti i set di dati creati e che corrispondano a quelle del dataset di partenza (63% non fumatore - 37% fumatore).
+
+```{r}
+round(prop.table(table(sub.train$smoking)),2)
+round(prop.table(table(validation$smoking)),2)
+round(prop.table(table(test$smoking)),2)
+```
+
+Tutto è correttamente bilanciato, quindi si procede con la fase di pre-processing.
+
+# Pre-processing
+
+## Analisi missing values e outliers
+
+La seguente analisi esplorativa prenderà in considerazione solo il sub.train. Per prima cosa si ispeziona la presenza di valori mancanti.
+
+```{r}
+sum(is.na(sub.train)) #sono presenti missing values?
+md.pattern(sub.train)
+
+sub.train.numeric <- sub.train%>% dplyr::select(-c(gender, hearing.left., hearing.right., dental.caries, tartar, smoking))
+summary(sub.train.numeric) #statistiche principali per le variabili quantitative
+```
+
+Il dataset non contiene missing. E' necessario controllare anche la presenza di eventuali outliers. Per fare ciò si riporta una tabella contenente massimo e minimo delle variabili quantitative e il range di variazione ottimale di esse (valori per una persona sana).
+
+Train:
+
+| Variabile           | Minimo | Massimo | Range di variazione ottimale |
+|:--------------------|:-------|:--------|:-----------------------------|
+| Systolic            | 80     | 213     | 110-140 mm/hg                |
+| Relaxation          | 40     | 146     | 70-90 mm/hg                  |
+| Fasting blood sugar | 46     | 505     | 70-140 mg/dl                 |
+| Cholesterol         | 55     | 441     | \<200 mg/dl                  |
+| Triglyceride        | 11     | 548     | \<200 mg/dl                  |
+| HDL                 | 4      | 618     | \>40 mg/dl                   |
+| LDL                 | 1      | 1660    | \<130 mg/dl                  |
+| Hemoglobin          | 4.9    | 20.9    | 12-18 mg/dl                  |
+| Serum creatinine    | 0.1    | 10      | 0.8-1.2 mg/dl                |
+| AST                 | 6      | 1311    | 8-60 U/l                     |
+| ALT                 | 1      | 2062    | 7-55 U/l                     |
+| γ-GTP               | 3      | 999     | 2-50 U/l                     |
+
+Essendo misurazioni mediche è normale che molte osservazioni siano fuori dal range di valori ottimale: ad esempio, un valore di 455 per il colesterolo è molto elevato e pericoloso per la salute, ma non per questo è da considerarsi un valore non plausibile.
+
+## Analisi delle correlazioni
+
+```{r}
+correlazione <- cor(sub.train.numeric)
+heatmaply::heatmaply_cor(correlazione, 
+                         cellnote = round(correlazione,2), cellnote_textposition = "middle center",
+                         cellnote_size = 8,
+                         show_dendrogram = c(FALSE, FALSE))
+```
+
+Si notano alcune correlazioni significative:
+
+-   ALT - AST (83%)
+-   weight - waist (82%)
+-   relaxation - sistolic (76%)
+-   LDL - cholesterol (75%)
+
+Le prime due coppie hanno una correlazione molto elevata, il che giustifica un'ulteriore selezione di variabili. In particolare, si mantengono AST (enzima più generico) e weight (waist fornisce un'informazione ridondante).
+
+```{r}
+train <- train%>% dplyr::select(-c(waist.cm., ALT))
+sub.train <- sub.train%>% dplyr::select(-c(waist.cm., ALT))
+sub.train.numeric <- sub.train.numeric%>% dplyr::select(-c(waist.cm., ALT))
+validation <- validation%>% dplyr::select(-c(waist.cm., ALT))
+test <- test%>% dplyr::select(-c(waist.cm., ALT))
+```
+
+## Distribuzione delle variabili
+
+Si procede ora con una rappresentazione grafica delle esplicative attraverso dei boxplot condizionati alle classi della variabile target.
+
+```{r}
+boxplot <-list()
+variabili<- colnames(sub.train.numeric)
+for (i in variabili){
+  boxplot[[i]] <- ggplot(sub.train, aes_string(x = "smoking", y = i, col = "smoking", fill = "smoking")) + 
+    geom_boxplot(alpha = 0.2) + 
+    theme(legend.position = "none") + 
+    scale_color_manual(values = c("blue", "red")) 
+  scale_fill_manual(values = c("blue", "red"))
+}
+library(gridExtra)
+grid.arrange(grobs=boxplot, nrow=4, ncol=4)
+```
+
+Dai boxplot si nota come alcune variabili abbiano una distribuzione sbilanciata. La forte asimmetria è evidenziata anche dagli istogrammi di esse: per questo è opportuno effettuare una trasformazione logaritmica.
+
+```{r}
+par(mfrow=c(1,2))
+
+hist(sub.train$fasting.blood.sugar, main = 'fasting.blood.sugar')
+sub.train$fasting.blood.sugar<-log(sub.train$fasting.blood.sugar)
+hist(sub.train$fasting.blood.sugar, main = 'log(fasting.blood.sugar)')
+
+hist(sub.train$triglyceride, main = 'triglyceride')
+sub.train$triglyceride<-log(sub.train$triglyceride)
+hist(sub.train$triglyceride, main = 'log(triglyceride)')
+
+hist(sub.train$HDL, main = 'HDL')
+sub.train$HDL<-log(sub.train$HDL)
+hist(sub.train$HDL, main = 'log(HDL)')
+
+hist(sub.train$LDL, main = 'LDL')
+sub.train$LDL<-log(sub.train$LDL)
+hist(sub.train$LDL, main = 'log(LDL)')
+
+hist(sub.train$serum.creatinine, main = 'serum.creatinine')
+sub.train$serum.creatinine<-log(sub.train$serum.creatinine)
+hist(sub.train$serum.creatinine, main = 'log(serum.creatinine)')
+
+hist(sub.train$AST, main = 'AST')
+sub.train$AST<-log(sub.train$AST)
+hist(sub.train$AST, main = 'log(AST)')
+
+hist(sub.train$Gtp, main = 'Gtp')
+sub.train$Gtp<-log(sub.train$Gtp)
+hist(sub.train$Gtp, main = 'log(Gtp)')
+
+par(mfrow=c(1,1))
+```
+
+Confrontando gli istogrammi delle variabili originali e delle trasformate logaritmiche si nota come la distribuzione sia ora più simmetrica.
+
+La normalizzazione è altamente influenzata da quelli che potrebbero essere dei valori anomali nel sub.train, andando a genererare distorsioni nel validation e successivamente nel test, per questo motivo si è scelto di non utilizzarla. La scelta è ricaduta tra due tecniche, la prima è una standardizzazione e la seconda una tecnica costruita ad hoc andando a sottrarre al valore il primo quartile e dividendo il tutto per lo scarto interquartile. Si è preferito usare la prima: nonostante la media sia influenzata dagli outlier, la numerosità elevata mitiga questo effetto e si ottiene una variabile con distribuzione nota. 
+```{r}
+#Creazione matrice per tenerne traccia di min e max di ogni variabile 
+matrix_indicators <- matrix(0, nrow=(dim(sub.train.numeric)[2]), ncol=2) 
+colnames(matrix_indicators) <- c("media", "dv")
+
+sub.train.numeric$fasting.blood.sugar<-(sub.train$fasting.blood.sugar)
+sub.train.numeric$triglyceride<-(sub.train$triglyceride)
+sub.train.numeric$HDL<-(sub.train$HDL)
+sub.train.numeric$LDL<-(sub.train$LDL)
+sub.train.numeric$serum.creatinine<-(sub.train$serum.creatinine)
+sub.train.numeric$AST<-(sub.train$AST)
+sub.train.numeric$Gtp<-(sub.train$Gtp)
+
+#Calcolo media e deviazione standard 
+for (i in 1:nrow(matrix_indicators)){
+  matrix_indicators[i, "media"] <- mean(sub.train.numeric[,i])
+  matrix_indicators[i, "dv"] <- sd(sub.train.numeric[,i])
+}
+
+#Standardizzazione
+for (i in 1:nrow(matrix_indicators)){
+  sub.train.numeric[, i] <- (sub.train.numeric[, i] - matrix_indicators[i, "media"])/(matrix_indicators[i, "dv"]) }
+
+#Aggiornamento sub.train completo (con anche le qualitative)
+sub.train <- cbind(sub.train.numeric, sub.train$gender, sub.train$hearing.left., sub.train$hearing.right.,
+               sub.train$dental.caries, sub.train$tartar, sub.train$smoking)
+colnames(sub.train)[15:20] <- c('gender','hearing.left.','hearing.right.','dental.caries','tartar','smoking')
+```
+
+
+Viene svolta la analisi per componenti principali al fine sia di individuare le variabili che più influenzano i pesi delle componenti sia per graficare la distribuzione della classificazione con le due variabili che sono più legate alle prime due componenti principali. Queste sono trigliceridi e Gtp: verranno tenute in considerazione solo a fini grafici, mentre i modelli verranno stimati con il set di variabili completo.
+
+```{r}
+pca <- princomp(sub.train.numeric[,-c(1:3)])
+summary(pca)
+#le prime due componenti 
+sort(pca$loadings[,1]) #Gtp
+sort(pca$loadings[,2]) #Cholesterol 
+ggplot(sub.train, aes(x=Gtp, y=Cholesterol, col=smoking))+
+  geom_point(alpha=0.2)+
+  stat_ellipse(type="norm")+
+  scale_colour_manual(values=c("darkgreen", "red"))+
+  theme_bw()+
+  labs(title="Classificazione originale")+
+  xlab("trasformazione Gtp")+
+  ylab("trasformazione Colesterolo")
+```
+
+Ogni modello verrà costruito sul sub train e testato nel validation, verrà creata una matrice che salva le seguenti metriche: F1 score, accuracy e la recall(sensitivity).
+L'F1 score risulta particolarmente vantaggiosa in questo caso per due motivi. In primis è utile quando ci sono costi diversi di falsi positivi e falsi negativi: in questo caso, per un'assicurazione è peggio predire come non fumatori persone che in realtà lo sono, in quanto i costi calcolati sarebbero minore di quelli potenzialmente necessari.
+Inoltre le classi non sono perfettamente bilanciate (63%-37%), quindi limitarsi all'accuracy potrebbe dare risultati imprecisi.
+
+```{r}
+matrice_ris<-matrix(ncol=4)
+colnames(matrice_ris)<-c("modello", "F1", "accuracy", "recall")
+```
+L'intera analisi dei dati data anche la numerosità del dataset, verrà effettuata valutando le prestazioni dei modelli costruiti sul  sub.trainnel validation. Si confronteranno successivamente i risultati ottenuti nel validation, con il fine di scegliere un unico modello da testare sul test set, al fine di simulare una situazione reale in cui il test set rappresenta i pazienti su cui usare realmente il modello per predire la loro condizione di fumatori.
+# Modelli: training e validation
+
+## Alberi decisionali
+
+Il primo modello testato è un albero di classificazione. I limiti di questo modello sono in primis a livello computazionale. 
+Difatti vista la grande dimensionalità del dataset il numero di nodi che il modello va a creare è estremamente esiguo (3). 
+Si è provato a rieseguire l'analisi sia riducendo la dimensionalità che usando le variabili senza le trasformazioni ma non si sono ottenuti risultati migliori. Inoltre non è stata necessaria l'applicazione della potatura dell'albero in quanto già di dimensioni ridotte.
+
+```{r}
+albero <- tree(smoking~., data=sub.train)
+summary(albero)
+plot(albero)
+text(albero, pretty = 0)
+```
+
+L'albero ottenuto classfica inizialmente sul gender, ovvero se si è femmine non si fuma, per i maschi invece viene effettuata una discriminazione in base al gtp. Come è immaginabile un modello così semplice risulta poco informativo, tanto che la misclassificazione è quasi del 29%. 
+```{r}
+albero
+```
+Come si nota inoltre nello split basato sul Gtp la classificazione è fortemente influenzata dal training set nello split basato sul Gtp la proporzione delle classi è quasi identica( 55%-45%).Inoltre è interessante notare la proporzione di donne fumatrici(meno del 4%).
+
+
+Prima di testare il modello sul validation, è opportuno e necessario effettuare le trasformazioni svolte nel sub train, nel validation. 
+```{r}
+summary(validation[,-20]) #no missing values
+
+#Applicazione trasformate logaritmiche 
+validation$fasting.blood.sugar<-log(validation$fasting.blood.sugar)
+validation$triglyceride<-log(validation$triglyceride)
+validation$HDL<-log(validation$HDL)
+validation$LDL<-log(validation$LDL)
+validation$serum.creatinine<-log(validation$serum.creatinine)
+validation$AST<-log(validation$AST)
+validation$Gtp<-log(validation$Gtp)
+
+#Standardizzazione
+validation.numeric <- validation[,-c(1,5,6,18,19,20)]
+for (i in 1:nrow(matrix_indicators)){
+  validation.numeric[, i] <- (validation.numeric[, i] - matrix_indicators[i, "media"])/(matrix_indicators[i, "dv"])
+}
+validation <- cbind(validation.numeric, validation$gender, validation$hearing.left., validation$hearing.right.,
+               validation$dental.caries, validation$tartar, validation$smoking)
+colnames(validation)[15:20] <- c('gender','hearing.left.','hearing.right.','dental.caries','tartar','smoking')
+```
+
+Si valuta l'efficienza sul validation
+```{r}
+tree.pred <- predict(albero , validation[,-20], type = "class")
+cfalbero<-confusionMatrix(tree.pred , validation$smoking, positive = "1", mode="everything")
+cfalbero
+```
+L'accuracy del 71% è fuorviante, infatti la classificazione dei non fumatori è efficiente (specificità quasi del 90%), ma facendo riferimento ai fumatori il modello risulta altamente inefficiente (sensibilità al di sotto del 40%). 
+
+```{r}
+matrice_ris[1,]<-c("albero decionale", cfalbero$byClass["F1"], cfalbero$overall["Accuracy"],cfalbero$byClass["Sensitivity"])
+```
+I risultati ottenuti sono stati salvati nel modello. 
+
+
+Ora si provano a graficare i risultati ottenuti con la classificazione e le vere label, evidenziando in blu i punti misclassificati. 
+
+```{r}
+library(mclust)
+misclassificatealbero<-(classError(tree.pred, validation$smoking)$misclassified)
+
+plotv<-ggplot(validation, aes(x=Gtp, y=Cholesterol, col=smoking))+
+  geom_point()+
+  scale_colour_manual(values=c("darkgreen", "red"))+
+  theme_bw()+
+  labs("Classificazione originale vere label")+
+  theme_bw()
+plotc<-ggplot(validation, aes(x=Gtp, y=Cholesterol, col=smoking))+
+  geom_point()+
+  scale_colour_manual(values=c("darkgreen", "red"), name="classificazione")+
+  geom_point(data=validation[misclassificatealbero,],  col="blue", alpha=0.5)+
+  theme_bw()+
+  labs("Classificazione secondo il metodo tree")+
+  theme_bw()
+grid.arrange(plotv, plotc, ncol = 2,
+             top = "Etichette vere vs classificazione con un albero")
+```
+Il blu indica una classificazione errata. 
+Nel grafico si nort come l'albero abbia una grossa difficoltà a classificare principalmente le unità "centrali".  
+
+## LDA e QDA
+
+Il modello più restrittivo in termini di ipotesi sulle covariate è quello basato su LDA/QDA. Questi metodi impongono in primis che sia verificata la distribuzione normale delle variabili. Per avere una visione immediata vengono qui presentati i QQplot condizionati alla classe; ad essi viene sovraimposta la linea dei quantili 'teorici' in modo da avere un'indicazione dello scostamento di quelli della variabile in esame.
+
+Da questa analisi sono escluse le variabili dicotomiche, age, height e weight. Osservando i valori di queste ultime 3 si nota infatti come assumano valori ad intervalli di 5 unità: le rilevazioni sono quindi state arrotondate. Si potrebbe infatti pensare di ricodificarle utilizzando degli intervalli e renderle variabili factor. Al di fuori di esse rimane comunque un ampio set di variabili, quindi si procede con esse.
+
+```{r}
+#QQplot condizionati alla classe smoking = 1 (fumatori)
+par(mfrow = c(2,3))
+for(i in variabili[4:9]) {
+  qqnorm(sub.train[sub.train$smoking == 1, i], main = i)
+  qqline(sub.train[sub.train$smoking == 1, i], col = 2)
+}
+par(mfrow = c(2,3))
+for(i in variabili[10:14]) {
+  qqnorm(sub.train[sub.train$smoking == 1, i], main = i)
+  qqline(sub.train[sub.train$smoking == 1, i], col = 2)
+}
+
+#QQplot condizionati alla classe smoking = 0 (non fumatori)
+par(mfrow = c(2,3))
+for(i in variabili[4:9]) {
+  qqnorm(sub.train[sub.train$smoking == 0, i], main = i)
+  qqline(sub.train[sub.train$smoking == 0, i], col = 2)
+}
+par(mfrow = c(2,3))
+for(i in variabili[10:14]) {
+  qqnorm(sub.train[sub.train$smoking == 0, i], main = i)
+  qqline(sub.train[sub.train$smoking == 0, i], col = 2)
+}
+```
+
+Già dai QQplot si nota come nessuna delle variabili abbia un andamento normale per entrambe le classi. Per avere un'ulteriore conferma si costruiscano le curve di densità condizionate.
+
+```{r}
+plot_density <- list()
+for(i in variabili[4:14]){
+  plot_density[[i]] <- ggplot(sub.train, aes_string(x = i, y = "..density..", col = "smoking")) + 
+    geom_density(aes(y = ..density..)) + 
+    scale_color_manual(values = c("blue", "red")) + 
+    theme(legend.position = "none")
+}
+do.call(grid.arrange, c(plot_density, nrow = 4))
+```
+
+I problemi sono soprattutto sulle code: questo è causato dai numerosi valori estremi che caratterizzano le variabili. Un'ulteriore conferma sarebbe fornita dal test per la normalità di Shapiro-Wilk, non applicabile in quest'analisi a causa della numerosità delle osservazioni molto maggiore rispetto a quella richiesta per lo svolgimento del test (dal punto di vista computazionale).
+
+Dall'analisi fatta a livello qualitativo sui grafici delle densità, alcune variabili come colesterolo o HDL hanno una distribuzione normale, il problema risiede nella perfetta sovrapposizione delle due curve di densità condizionate, che impediscono ai modelli di identificare in maniera efficace le due classi. E' stata comunque svolta un'analisi per un'ulteriore conferma, la quale ha dato pessimi risultati. 
+Le uniche variabili che sembrano essere distinte sono i trigliceridi, emoglobina e Gtp ma non presentano una distribuzione normale, potrebbero essere misture di misture. Si sceglie di procedere con metodi ritenuti più opportuni.
+
+## Regressione logistica
+
+Si applica ora la regressione logistica. Prima si stima un modello con tutte le esplicative e successivamente, per cercare di ridurre la dimensionalità, si usa una selezione stepwise basata sul criterio AIC (the lower the better) in modo da rimuovere le variabili non significative.
+
+```{r}
+logit <- glm(smoking ~., data = sub.train, family = binomial)
+summary(logit) #AIC: 23405
+step.logit <- stepAIC(logit, direction = "both", trace = FALSE)
+summary(step.logit) #AIC: 23400
+```
+
+Le variabili significative mantenute dalla selezione stepwise sono comunque molto numerose. Si procede analizzando la presenza di punti influenti, eliminandoli e ripetendo la stima del modello per vedere se ci sono dei miglioramenti.
+
+```{r}
+influencePlot(step.logit)
+sub.train2 <- sub.train[-c(20340,4225,11570,1577,17822,16607),]
+logit2 <- glm(smoking ~., data = sub.train2, family = binomial)
+summary(logit2) #AIC: 23402
+step.logit2 <- stepAIC(logit2, direction = "both", trace = FALSE)
+summary(step.logit2) #AIC: 23396
+```
+
+Il modello risultante comprende le seguenti variabili: height, weight, systolic, relaxation, triglyceride, LDL, hemoglobin, serum.creatinine, AST, Gtp, gender, dental.caries, tartar.
+
+La regressione logistica assume che ci sia una relazione lineare tra le variabili esplicative e il logaritmo dell'odds ratio: è quindi bene testare ciò attraverso un'analisi grafica.
+
+```{r}
+#Calcolo fitted values (focus solo sulle variabili quantitative)
+probabilities <- predict(step.logit2, type = "response") #posterior probabilities
+variabili.new <- variabili[-(6:7)]
+#Costruzione degli odds ratio 
+supp <- sub.train2[,variabili.new]
+supp <- supp %>%
+  mutate(logit = log(probabilities/(1-probabilities))) %>%
+  gather(key = "variabili.new", value = "predictor.value", -logit)
+
+#Costruzione dei grafici
+ggplot(supp, aes(logit, predictor.value))+
+  geom_point(size = 0.5, alpha = 0.5) +
+  geom_smooth(method = "loess") + 
+  theme_bw() + 
+  facet_wrap(~variabili[-(6:7)], scales = "free_y")
+```
+
+Come si nota la linearità è in parte rispettata, ma l'alta variabilità dei punti non permette un'investigazione più precisa. Inoltre c'è un'ulteriore evidenza del fatto che age, height e weight andrebbero trasformate in dummy individuando più intervalli a cui assegnare le osservazioni. 
+
+```{r}
+predict.logit <- predict(step.logit2, validation[, -20], type = "response") #posterior probabilities
+predict.logit.class <- ifelse(predict.logit > 0.5, 1, 0) #suddivide le post prob in due classi (0-1) con la soglia decisionale pari a 0.5 
+conf <- confusionMatrix(factor(validation[, 20]), factor(as.vector(predict.logit.class)), positive = '1', mode='everything')
+conf
+```
+
+La sensitività è meno del 65%, l'F1 score è circa il 67%. Perciò si provi a modificare la soglia per l'assegnazione al fine di migliorare la classificazione dei fumatori.
+
+```{r}
+predict.logit.class2 <- ifelse(predict.logit > 0.3, 1, 0) 
+conf1 <- confusionMatrix(factor(as.vector(predict.logit.class2)),factor(validation[, 20]),positive='1',
+                         mode='everything')
+conf1
+```
+Il valore della recall è aumentato nettamente, arrivando al 93%. Anche l'F1 score è migliorato.
+Diminuendo ulteriormente la soglia migliora la recall ma peggiora la precision, quindi si sceglie di mantenere la soglia a 0.3.
+
+Si graficano quindi i risultati ottenuti
+
+```{r}
+matrice_ris<-rbind(matrice_ris,c("regressione logistica",conf1$byClass["F1"],conf1$overall["Accuracy"],conf1$byClass["Sensitivity"]))
+```
+
+```{r}
+misclassificatereg<-(classError(predict.logit.class2, validation$smoking)$misclassified)
+
+plotv<-ggplot(validation, aes(x=Gtp, y=Cholesterol, col=smoking))+
+  geom_point()+
+  scale_colour_manual(values=c("darkgreen", "red"))+
+  theme_bw()+
+  labs("Classificazione originale vere label")+
+  theme_bw()
+plotc<-ggplot(validation, aes(x=Gtp, y=Cholesterol, col=smoking))+
+  geom_point()+
+  scale_colour_manual(values=c("darkgreen", "red"), name="classificazione")+
+  geom_point(data=validation[misclassificatealbero,],  col="blue", alpha=0.5)+
+  theme_bw()+
+  labs("Classificazione secondo la regressione logistica")+
+  theme_bw()
+grid.arrange(plotv, plotc, ncol = 2,
+             top = "Etichette vere vs classificazione con regressione logistica")
+```
+
+Si valuti ora la curva ROC e si calcoli l'AUC.
+
+```{r}
+roc.logit <- prediction(predict.logit, validation[, 20])
+performance.logit <- performance(roc.logit,"tpr","fpr")
+auc.logit <- performance(roc.logit, measure = "auc")@y.values
+auc.logit
+plot(performance.logit, colworize = TRUE, main = "Regressione Logistica")
+```
+
+Il modello di regressione logistica non si adatta bene ai dati per il problema già citato della linearità. Inoltre un problema riscontrato è dovuto alla dimensionalità: sono infatti state effettuate più prove per ridurre il numero di variabili come: analisi delle componenti principali, eliminazione di variabili più specifiche (es. rimuovere HDL e LDL e mantenere Cholesterol). Questi tentativi hanno però condotto a modelli con un AIC maggiore e senza miglioramenti in termini di performance: questo ha portato alla decisione di quasi tutte le variabili, a discapito di un modello molto ricco.
+
+## KNN
+
+Si sceglie ora di valutare un modello non parametrico basato sulle distanze: per questo motivo verrano usate solo le variabili quantitative già opportunamente trasformate.
+La funzione KNN chiede in input la risposta e le covariate in due dataset distinti, sia per il train che per il validation. 
+
+```{r}
+X_train_picc<-sub.train%>%dplyr::select(-c(smoking,gender,hearing.left., hearing.right., dental.caries, tartar))#SOLO QUANTITATIVE
+Y_train_picc<-sub.train$smoking
+#validation
+X_validation<-validation%>%dplyr::select(-c(smoking,gender,hearing.left., hearing.right., dental.caries, tartar))
+Y_validation<-validation$smoking
+```
+
+Si prova ora a trovare il numero di k vicini ottimale andando a confrontare i diversi valori dell'F1 per ciascun k.
+
+```{r}
+k_to_try = 1:100
+err_k = rep(x = 0, times = length(k_to_try))
+for (i in seq_along(k_to_try)) {
+  pred = knn(train = X_train_picc,
+             test = X_validation, cl = Y_train_picc,
+             k = k_to_try[i])
+  err_k[i] = confusionMatrix(pred, Y_validation, positive='1')$byClass["F1"]}
+```
+
+L'esecuzione del ciclo risulta esssere onerosa computazionalmente  ma i vantaggi operativi sono notevoli.
+Tramite un plot dei risultati ottenuti con l'esecuzione del ciclo for, si valutano graficamente le performance del modello al variare del parametro di tuning k.
+
+```{r}
+F1_scores<-matrix(nrow=length(k_to_try), ncol=2)
+F1_scores[,1]<-1:100
+F1_scores[,2]<-err_k
+colnames(F1_scores)<-c("k", "F1")
+F1gg<-as.data.frame(F1_scores)
+ggplot(data=F1gg, aes(x=k, y=F1))+
+  geom_point(col="blue")+
+  geom_line(lty="dotted")+
+  theme_bw()+
+  geom_text(data=F1gg[91,], aes(label=round(F1,2)), vjust=-0.8)+
+  geom_hline(yintercept =F1gg[91,2], col="red", alpha=0.4)+
+  scale_x_continuous(breaks = c(1,seq(5,100, by=5), 91) )+
+  labs("f1 score in base al k")
+```
+
+Il miglior k è risultato essere quello uguale a 91. Si ristima il modello sul sub train valutandone la performance nel validation.
+
+```{r}
+#miglior k
+best_k<-knn(train = X_train_picc,
+            test = X_validation, cl = Y_train_picc,
+            k = 91, prob=T)
+
+conf2 <- confusionMatrix(best_k, Y_validation, positive='1', mode='everything')
+conf2
+```
+
+Il modello ha una sensitività e un F1 score non ottimali, rispettivamente intorno al 65%. Questo è dovuto alla struttura dei cluster in cui i punti sono molto sovrapposti tra le due classi.
+Una soluzione è quella della modifica delle soglie per far si che non venga autamticamente asseganto alla classe maggioritaria ma ad una che è più coerente con la reale proporzione delle classi.
+
+```{r}
+prob.knn <- attributes(best_k)$prob
+prop_1<-ifelse(best_k == "0", 1-prob.knn, prob.knn)
+classi_soglia_knn<-ifelse(prop_1>0.4, 1, 0)
+conf3<-confusionMatrix(as.factor(classi_soglia_knn), validation$smoking, positive = "1", mode="everything")
+conf3
+```
+
+La sensibilità, modificando la classificazione come fumatore quando questo era presente in più del 40% dei dati, è aumentata fino a quasi l'84% e l'F1 score è aumentato diventando il 69%
+
+```{r}
+library(mclust)
+misclassificateknn<-(classError(classi_soglia_knn, validation$smoking)$misclassified)
+
+plotv<-ggplot(validation, aes(x=Gtp, y=Cholesterol, col=smoking))+
+  geom_point()+
+  scale_colour_manual(values=c("darkgreen", "red"))+
+  theme_bw()+
+  labs("Classificazione originale vere label")+
+  theme_bw()
+plotc<-ggplot(validation, aes(x=Gtp, y=Cholesterol, col=smoking))+
+  geom_point()+
+  scale_colour_manual(values=c("darkgreen", "red"), name="classificazione")+
+  geom_point(data=validation[misclassificateknn,],  col="blue", alpha=0.5)+
+  theme_bw()+
+  labs("Classificazione secondo il metodo knn")+
+  theme_bw()
+grid.arrange(plotv, plotc, ncol = 2,
+             top = "Etichette vere vs classificazione con 91-nn")
+```
+
+```{r}
+matrice_ris<-rbind(matrice_ris,c("91-NN",conf3$byClass["F1"],conf3$overall["Accuracy"],conf3$byClass["Sensitivity"]))
+```
+
+Si valuti ora la curva ROC e si calcoli l'AUC.
+
+```{r}
+prob.knn <- attributes(best_k)$prob
+prob.knn <- 2*ifelse(best_k == "0", 1-prob.knn, prob.knn) - 1
+roc.knn <- prediction(prob.knn, validation[, 20])
+performance.knn <- performance(roc.knn,"tpr","fpr")
+auc.knn <- performance(roc.knn, measure = "auc")@y.values
+auc.knn
+plot(performance.knn, colworize = TRUE, main = "91-NN")
+```
+
+
+## Random Forest
+
+Il metodo Random Forest si basa sull'idea di combinare i risultati di più alberi decisionali. 
+
+Nella prima fase dell'algoritmo vengono addestrati più alberi decisionali a partire da campioni casuali estratti con reinserimento dal dataset di partenza (più training set). In questo modo si riduce l'overfitting: ciascun albero è legato ai suoi dati di training, ma la foresta non lo è.
+
+Per quanto riguarda la costruzione di ciascun albero le features da valutare in ogni nodo sono selezionate casualmente: in questo modo gli alberi saranno meno correlati tra di loro e più diversi, riducendo la varianza e aumentando le prestazioni del modello.
+
+Quando si considera una nuova osservazione basta ottenere la previsione della classe da ogni albero decisionale: la previsione finale è quella più frequente guardando all'intera foresta.
+
+Dato che Random Forest non necessita di particolari ipotesi sulle variabili sono state fatte più prove sia usando il dataset originale che quello trasformato (trasformazioni logaritmiche e standardizzazione). I risultati sono pressochè identici, quindi per coerenza procediamo con le variabili standardizzati. 
+
+```{r}
+set.seed(123)
+rf <- randomForest(smoking ~., data=sub.train, 
+                   importance=TRUE, #l'argomento importance = TRUE fa sì che venga valutata l'importanza relativa di ciascun esplicativa
+                   cutoff=c(0.7,0.3)) #regola la soglia decisionale
+
+#valori previsti sul validation
+rf.predict1 <- predict(rf, validation[,-20], type='prob')
+rf.predict1.class <- predict(rf, validation[,-20])
+conf4 <- confusionMatrix(rf.predict1.class, validation$smoking, positive='1', mode='everything')
+conf4
+```
+
+Il valore della sensitivity è ottimo: 95%. I risultati sono molto buoni anche in termini di F1 score. Il fatto di aver spostato la soglia è andato a discapito della specificity che però, per questa analisi, è meno rilevante.
+
+```{r}
+misclassificaterf<-(classError(rf.predict1.class, validation$smoking)$misclassified)
+
+plotv<-ggplot(validation, aes(x=Gtp, y=Cholesterol, col=smoking))+
+  geom_point()+
+  scale_colour_manual(values=c("darkgreen", "red"))+
+  theme_bw()+
+  labs("Classificazione originale vere label")+
+  theme_bw()
+plotc<-ggplot(validation, aes(x=Gtp, y=Cholesterol, col=smoking))+
+  geom_point()+
+  scale_colour_manual(values=c("darkgreen", "red"), name="classificazione")+
+  geom_point(data=validation[misclassificaterf,],  col="blue", alpha=0.5)+
+  theme_bw()+
+  labs("Classificazione secondo il metodo random forest")+
+  theme_bw()
+grid.arrange(plotv, plotc, ncol = 2,
+             top = "Etichette vere vs classificazione con random forest")
+```
+
+```{r}
+matrice_ris<-rbind(matrice_ris,c("random forest",conf4$byClass["F1"],conf4$overall["Accuracy"],conf4$byClass["Sensitivity"]))
+```
+
+```{r}
+#curva ROC e AUC
+roc.rf <- prediction(rf.predict1[,2], validation[, 20])
+performance.rf <- performance(roc.rf,"tpr","fpr")
+auc.rf <- performance(roc.rf, measure = "auc")@y.values
+auc.rf
+plot(performance.rf, colworize = TRUE, main = "Random Forest")
+```
+
+Il coefficiente AUC è di 0.89: si tratta di un ottimo risultato, considerando che un classificatore perfetto ha AUC=1.
+
+Si proceda ora andando a investigare l'importanza relativa di ciascuna delle variabili esplicative: 
+
+```{r}
+importance <- importance(rf)
+var.imp <- tibble(variabile=row.names(importance),
+                  importanza = importance[,'MeanDecreaseGini'])
+ggplot(var.imp, aes(x=reorder(variabile,desc(importanza)), y=importanza, fill=importanza))+
+  geom_col()+
+  labs(x="Predittori", y ="Importanza", title="Importanza dei predittori")+
+  theme(axis.text.x = element_text(angle=90))
+```
+
+L’importanza delle covariate è tanto maggiore quanto è il valore dell'indice di impurità di Gini. 
+Le variabili più importanti per la classificazione sono genere, gtp, emoglobina e in generale le variabili legate al colesterolo. Minor importanza hanno quelle legate all'udito e all'igiene dentale.
+
+
+# Valutazione sul test
+
+Si confrontino innanzitutto i risultati ottenuti dai modelli precedenti in termini di metriche.
+
+```{r}
+matrice_ris<-as.data.frame(matrice_ris)
+matrice_ris$F1<-as.numeric(matrice_ris$F1)
+matrice_ris$accuracy<-as.numeric(matrice_ris$accuracy)
+matrice_ris$recall<-as.numeric(matrice_ris$recall)
+matrice_ris
+
+plot.a<-ggplot(matrice_ris, aes(x=modello,y=F1,col=modello))+
+  geom_point()+
+  geom_text(aes(label=round(F1,4)),col='black',vjust=1.5,size=3)+
+  scale_y_continuous(limits=c(0,1))+
+  theme_bw()+
+  xlab('')+
+  theme(legend.position = 'top')
+plot.b<-ggplot(matrice_ris, aes(x=modello,y=accuracy,col=modello))+
+  geom_point()+
+  geom_text(aes(label=round(accuracy,4)),col='black',vjust=1.5,size=3)+
+  scale_y_continuous(limits=c(0,1))+
+  theme_bw()+
+  xlab('')+
+  theme(legend.position = 'none')
+plot.c<-ggplot(matrice_ris, aes(x=modello,y=recall,col=modello))+
+  geom_point()+
+  geom_text(aes(label=round(recall,4)),col='black',vjust=1.5,size=3)+
+  scale_y_continuous(limits=c(0,1))+
+  theme_bw()+
+  theme(legend.position = 'none')
+
+grid.arrange(plot.a,plot.b,plot.c, nrow = 3, top='Confronto metriche sui vari modelli',heights=c(21.5,15,15))
+
+```
+Come si nota dal grafico il modello che performa meglio in termini di tutte le metriche è random forest. Il peggiore invece, come si era già riscontrato, è l'albero decisionale.
+L'accuracy non è la metrica più adeguata per questo problema, infatti dà uguale peso agli errori di classificazione. In questo caso invece è bene minimizzare il tasso di falsi negativi (non fumatori) e quindi massimizzare la recall: questa metrica è infatti molto più utile agli scopi di questa analisi ed è anche quella che discrimina maggiormente tra i metodi, avvalorando il fatto che random forest sia quello migliore.
+L'F1 combina recall e precisione, che misura la qualità della classificazione della classe di interesse (fumatori). Anche questa assume il valore più elevato con il metodo random forest.
+
+Il fatto che quest'ultimo sia il classificatore migliore è visibile anche confrontando le curve di ROC.
+
+```{r}
+par(mfrow=c(1,3))
+plot(performance.logit, colworize = TRUE, main = "Regressione Logistica")
+plot(performance.knn, colworize = TRUE, main = "91-KNN")
+plot(performance.rf, colworize = TRUE, main = "Random Forest")
+par(mfrow=c(1,1))
+```
+
+Si va quindi a valutare la performance di random forest sul test set. In primis si uniscano sub.train e validation e si trasformi il test set.
+
+```{r}
+summary(test[,-20]) #no missing values
+
+#Applicazione trasformate logaritmiche 
+test$fasting.blood.sugar<-log(test$fasting.blood.sugar)
+test$triglyceride<-log(test$triglyceride)
+test$HDL<-log(test$HDL)
+test$LDL<-log(test$LDL)
+test$serum.creatinine<-log(test$serum.creatinine)
+test$AST<-log(test$AST)
+test$Gtp<-log(test$Gtp)
+
+#Standardizzazione
+test.numeric <- test[,-c(1,5,6,18,19,20)]
+for (i in 1:nrow(matrix_indicators)){
+  test.numeric[, i] <- (test.numeric[, i] - matrix_indicators[i, "media"])/(matrix_indicators[i, "dv"])
+}
+test <- cbind(test.numeric, test$gender, test$hearing.left., test$hearing.right.,
+               test$dental.caries, test$tartar, test$smoking)
+colnames(test)[15:20] <- c('gender','hearing.left.','hearing.right.','dental.caries','tartar','smoking')
+
+#Unione sub.train e validation
+train.finale <- rbind(sub.train,validation)
+```
+
+Si riallena il modello sul train completo e si valuta sul test. 
+
+```{r}
+set.seed(123)
+rf.finale <- randomForest(smoking ~., data=train.finale, cutoff=c(0.7,0.3)) 
+rf.pred.class.finale <- predict(rf.finale, test[,-20])
+conf5 <- confusionMatrix(rf.pred.class.finale, test$smoking, positive='1', mode='everything')
+conf5
+```
+La sensitivity è superiore al 95% e l'F1 score è del 77%, evidenziando un'ottima capacità previsiva da parte del modello scelto per la classe di riferimento. L'accuracy è comunque vicina all'80%, evidenziando una capacità del modello di classificare correttamente su entrambe le classi.
+
+Si grafichi la classificazione con il modello scelto evidenziando le osservazioni misclassificate.
+
+```{r}
+misclassificatetest<-(classError(rf.pred.class.finale, test$smoking)$misclassified)
+
+plotv<-ggplot(test, aes(x=Gtp, y=Cholesterol, col=smoking))+
+  geom_point()+
+  scale_colour_manual(values=c("darkgreen", "red"))+
+  labs(title="Classificazione originale vere label nel test set")+
+  theme_bw()
+plotv
+plotc<-ggplot(test, aes(x=Gtp, y=Cholesterol, col=smoking))+
+  geom_point()+
+  scale_colour_manual(values=c("darkgreen", "red"), name="classificazione")+
+  geom_point(data=test[misclassificatetest,],  col="blue", alpha=0.5)+
+  labs(title="Classificazione secondo il metodo random forest nel test set")+
+  theme_bw()
+plotc
+```
+
+I problemi della classificazione rimangono nella parte centrale. A causa dell'elevato numero di osservazioni la rappresentazione è poco informativa: le unità misclassificate sono in tutto 3491 su un totale di 16708. Inoltre, al fine del problema in analisi la percentuale di misclassificate nella classe di fumatori è ancora più bassa.
+
+# Conclusioni
+
+Speriamo che la nostra analisi sia stata di aiuto nella scelta della modellistica per la previsione dello stato di fumatore o meno nel caso come quello assicirativo, in cui i costi associato ai diversi tipi di errore incidono.  
+
+#Fonti
+https://www.kaggle.com/datasets/kukuroo3/body-signal-of-smoking 
+www.data.go.kr
+www.nhis.or.kr
+www.koreatimes.co.kr
+https://www.my-personaltrainer.it/
+www.epicentro.iss.it
+
+
+
+
+
+
+
